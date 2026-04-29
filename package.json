@@ -19,7 +19,9 @@
     "autoprefixer": "^10.5.0",
     "better-sqlite3": "^12.9.0",
     "chromadb": "^3.4.3",
+    "decompress": "^4.2.1",
     "drizzle-orm": "^0.45.2",
+    "isomorphic-git": "^1.37.6",
     "lucide-react": "^1.14.0",
     "next": "^14.2.35",
     "next-themes": "^0.4.6",
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/decompress": "^4.2.7",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.0",
     "drizzle-kit": "^0.31.10",
