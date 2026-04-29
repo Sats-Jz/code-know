@@ -39,3 +39,5 @@ pnpm-debug.log*
 # data directories
 repos/
 chroma-data/
+code-know.db
+code-know.db-*
