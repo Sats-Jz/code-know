@@ -33,6 +33,9 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 
+# claude local settings
+.claude/
+
 # data directories
 repos/
 chroma-data/
