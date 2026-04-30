@@ -8,7 +8,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const context = results.map((r) => "[" + r.filePath + ":" + r.startLine + "] " + r.content).join("\n\n");
   const client = getDeepSeekClient();
   const res = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: "deepseek-v4-pro",
     messages: [{ role: "system", content: "Generate a " + graphType + " graph as a Mermaid diagram. Context:\n" + context }, { role: "user", content: target }],
     temperature: 0.2, max_tokens: 4096,
   });

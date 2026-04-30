@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   const client = getDeepSeekClient();
   const stream = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: "deepseek-v4-pro",
     messages: [
       { role: "system", content: "Compare the following codebases based on the user's question." },
       { role: "user", content: `${context}\n\nQuestion: ${question}` },

@@ -31,7 +31,7 @@ export async function* chatStream(
 
   const client = getDeepSeekClient();
   const stream = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: "deepseek-v4-pro",
     messages,
     stream: true,
     temperature: 0.3,
