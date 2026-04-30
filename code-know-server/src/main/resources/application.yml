@@ -5,7 +5,7 @@ spring:
   application:
     name: code-know-server
 
-  # H2 in-memory database (persisted to file)
+  # H2 database
   datasource:
     url: jdbc:h2:file:./data/codeknow;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
@@ -20,16 +20,15 @@ spring:
       ddl-auto: update
     show-sql: false
 
-  # Spring AI - OpenAI compatible
+  # Spring AI - OpenAI compatible (DeepSeek + SiliconFlow)
   ai:
     openai:
-      # DeepSeek chat (primary LLM)
+      api-key: dummy  # placeholder, real keys in application-local.yml
       chat:
         options:
           model: deepseek-v4-pro
           temperature: 0.3
           max-tokens: 8192
-      # SiliconFlow embedding
       embedding:
         options:
           model: BAAI/bge-m3
@@ -37,20 +36,16 @@ spring:
   profiles:
     active: local
 
-# DeepSeek API
 deepseek:
   api-key: ${DEEPSEEK_API_KEY:}
   base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
 
-# SiliconFlow embedding API
 siliconflow:
   api-key: ${SILICONFLOW_API_KEY:}
   base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn/v1}
 
-# ChromaDB
 chromadb:
   url: ${CHROMADB_URL:http://localhost:8000}
 
-# Data directory for cloned repos
 codeknow:
   data-dir: ${DATA_DIR:./repos}
