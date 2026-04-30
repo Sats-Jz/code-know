@@ -1,25 +1,32 @@
-let pipeline: any = null;
+import OpenAI from "openai";
+import { config } from "./config";
 
-export async function getEmbeddingModel() {
-  if (pipeline) return pipeline;
-  const { pipeline: pp } = await import("@xenova/transformers");
-  pipeline = await pp("feature-extraction", "Xenova/all-MiniLM-L6-v2");
-  console.log("Local embedding model loaded: Xenova/all-MiniLM-L6-v2");
-  return pipeline;
+let embeddingClient: OpenAI | null = null;
+
+function getClient(): OpenAI {
+  if (!embeddingClient) {
+    embeddingClient = new OpenAI({
+      apiKey: config.siliconflowApiKey,
+      baseURL: config.siliconflowBaseUrl,
+    });
+  }
+  return embeddingClient;
 }
 
 export async function embedText(text: string): Promise<number[]> {
-  const model = await getEmbeddingModel();
-  const output = await model(text, { pooling: "mean", normalize: true });
-  return Array.from(output.data);
+  const client = getClient();
+  const res = await client.embeddings.create({
+    model: config.embeddingModel,
+    input: text,
+  });
+  return res.data[0].embedding;
 }
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const model = await getEmbeddingModel();
-  const results: number[][] = [];
-  for (const text of texts) {
-    const output = await model(text, { pooling: "mean", normalize: true });
-    results.push(Array.from(output.data));
-  }
-  return results;
+  const client = getClient();
+  const res = await client.embeddings.create({
+    model: config.embeddingModel,
+    input: texts,
+  });
+  return res.data.map((d) => d.embedding);
 }
