@@ -131,6 +131,24 @@ pnpm dev
 
 打开 http://localhost:3000
 
+### 7. 切换后端（可选）
+
+项目支持两种后端，通过环境变量一键切换：
+
+```bash
+# Node.js 后端（Next.js 内置 API Routes，默认）
+NEXT_PUBLIC_BACKEND=node pnpm dev
+
+# Spring 后端（需要先在 code-know-server 目录启动 mvn spring-boot:run）
+pnpm dev
+# 不设变量时默认使用 Spring，API 请求代理到 localhost:8080
+```
+
+| 后端 | 启动命令 | 端口 | 适用场景 |
+|------|---------|------|------|
+| Node.js | `NEXT_PUBLIC_BACKEND=node pnpm dev` | 3000（内置） | 快速开发，不需要 Java |
+| Spring | `pnpm dev`（默认） | 3000 → 8080 代理 | 生产级部署，Swagger 文档 |
+
 ## 使用说明
 
 ### 导入仓库
