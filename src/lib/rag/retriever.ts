@@ -1,7 +1,7 @@
-import { createEmbedding } from "../deepseek";
 import { queryChunks } from "../chromadb";
 import { db, schema } from "../db";
 import { sql } from "drizzle-orm";
+import { embedText } from "../local-embed";
 
 export interface SearchResult {
   chunkId: number;
@@ -45,7 +45,7 @@ export async function hybridSearch(repoId: number, query: string, topK: number =
 
 async function vectorSearch(repoId: number, query: string, topK: number): Promise<SearchResult[]> {
   try {
-    const embedding = await createEmbedding(query);
+    const embedding = await embedText(query);
     const result = await queryChunks(repoId, embedding, topK);
 
     const chunkRecords = db.select().from(schema.chunks).where(sql`repo_id = ${repoId}`).all();
