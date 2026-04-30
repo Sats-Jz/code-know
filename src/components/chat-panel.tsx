@@ -88,19 +88,36 @@ export function ChatPanel({ repoId }: { repoId: string }) {
       const { done, value } = await reader.read();
       if (done) break;
       const text = decoder.decode(value);
-      for (const line of text.split("\n")) {
-        if (line.startsWith("data: ")) {
+      const lines = text.split("\n");
+      let eventType = "";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
           try {
-            const data = JSON.parse(line.slice(6));
-            if (data.delta) setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1].content += data.delta;
-              return updated;
-            });
-            if (data.conversation_id && !gotConvId) {
-              gotConvId = true;
-              setConvId(data.conversation_id);
-              fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
+            const raw = JSON.parse(line.slice(6));
+            // data could be either a plain string (text delta) or an object
+            if (typeof raw === "string") {
+              if (eventType === "text" || eventType === "") {
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1].content += raw;
+                  return updated;
+                });
+              }
+            } else if (raw && typeof raw === "object") {
+              if (raw.delta) {
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1].content += raw.delta;
+                  return updated;
+                });
+              }
+              if (raw.conversation_id && !gotConvId) {
+                gotConvId = true;
+                setConvId(raw.conversation_id);
+                fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
+              }
             }
           } catch {}
         }

@@ -16,9 +16,9 @@ export async function getCollection(repoId: number): Promise<Collection> {
   const c = getChromaClient();
   const name = `${COLLECTION_PREFIX}${repoId}`;
   try {
-    return await c.getCollection({ name });
+    return await c.getCollection({ name, embeddingFunction: undefined as any });
   } catch {
-    return await c.createCollection({ name });
+    return await c.createCollection({ name, embeddingFunction: undefined as any });
   }
 }
 
