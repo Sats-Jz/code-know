@@ -4,12 +4,12 @@ import com.codeknow.model.Conversation;
 import com.codeknow.model.ConversationRepository;
 import com.codeknow.model.Message;
 import com.codeknow.model.MessageRepository;
-import com.codeknow.service.ChromaDBService.ChromaQueryResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -50,7 +50,8 @@ public class ChatService {
         if (convId == null) {
             Conversation conv = new Conversation();
             conv.setRepoId(repoId);
-            conv.setTitle(request.message.length() > 50 ? request.message.substring(0, 50) : request.message);
+            String title = request.message.length() > 50 ? request.message.substring(0, 50) : request.message;
+            conv.setTitle(title);
             conv.setMode(request.mode != null ? request.mode : "explain");
             conv = convRepo.save(conv);
             convId = conv.getId();
@@ -66,27 +67,28 @@ public class ChatService {
 
         // Search context
         List<String> context = searchContext(repoId, request.message);
-
-        // Build prompt
         String ctx = "以下是相关代码片段：\n\n" + String.join("\n", context);
         String prompt = ctx + "\n\n用户问题: " + request.message;
 
         final Long finalConvId = convId;
-        return Flux.create(sink -> {
-            try {
-                // Send conversation_id first
-                sink.next("{\"type\":\"meta\",\"conversation_id\":" + finalConvId + "}");
 
+        return Flux.<String>create(sink -> {
+            try {
+                // meta event with conversation_id
+                sink.next(ssEvent("meta", Map.of("conversation_id", finalConvId)));
+
+                // Call LLM
                 var response = chatModel.call(new org.springframework.ai.chat.prompt.Prompt(
                     new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
                     new org.springframework.ai.chat.messages.UserMessage(prompt)
                 ));
                 String text = response.getResult().getOutput().getContent();
 
-                // Stream word by word for SSE effect
-                for (String word : text.split("(?<=\\S)(?=\\s)")) {
-                    sink.next("{\"type\":\"text\",\"data\":\"" + escapeJson(word) + "\"}");
-                    Thread.sleep(20);
+                // Split into sentences for streaming effect
+                String[] parts = text.split("(?<=\\n)|(?<=\\. )|(?<=。)|(?<=；)");
+                for (String part : parts) {
+                    if (part.isEmpty()) continue;
+                    sink.next(ssEvent("text", part));
                 }
 
                 // Save assistant message
@@ -97,35 +99,38 @@ public class ChatService {
                 aiMsg.setCreatedAt(LocalDateTime.now());
                 msgRepo.save(aiMsg);
 
-                sink.next("{\"type\":\"done\"}");
+                sink.next(ssEvent("done", Map.of()));
                 sink.complete();
             } catch (Exception e) {
-                sink.error(e);
+                sink.next(ssEvent("error", Map.of("error", e.getMessage())));
+                sink.complete();
             }
-        });
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private String ssEvent(String event, Object data) {
+        try {
+            String json = mapper.writeValueAsString(data);
+            return "event: " + event + "\ndata: " + json + "\n\n";
+        } catch (Exception e) {
+            return "event: error\ndata: {}\n\n";
+        }
     }
 
     private List<String> searchContext(Long repoId, String query) {
         List<String> results = new ArrayList<>();
         try {
             float[] emb = embedModel.embed(query);
-            ChromaQueryResult qr = chromaDB.query(repoId, emb, 15);
+            ChromaDBService.ChromaQueryResult qr = chromaDB.query(repoId, emb, 15);
             for (int i = 0; i < qr.documents.size(); i++) {
                 results.add(qr.documents.get(i));
             }
         } catch (Exception e) {
-            // embedding failed, return empty context
+            // embedding failed
         }
         return results;
     }
 
-    private String escapeJson(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
-    // --- Conversation management ---
     public List<Conversation> getConversations(Long repoId) {
         return convRepo.findByRepoIdOrderByCreatedAtDesc(repoId);
     }

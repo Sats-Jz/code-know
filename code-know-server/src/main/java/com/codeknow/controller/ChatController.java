@@ -6,6 +6,7 @@ import com.codeknow.service.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import java.util.List;
@@ -18,7 +19,7 @@ public class ChatController {
     private final ChatService chatService;
     public ChatController(ChatService chatService) { this.chatService = chatService; }
 
-    @PostMapping("/chat")
+    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "发送消息（SSE 流式）", description = "返回 Server-Sent Events 流，包含 text/chart/references/meta/done 事件")
     public Flux<String> chat(
             @PathVariable @Parameter(description = "仓库ID") Long repoId,
