@@ -1,0 +1,4 @@
+application-local.yml
+target/
+data/
+*.db
