@@ -44,32 +44,28 @@ export async function hybridSearch(repoId: number, query: string, topK: number =
 }
 
 async function vectorSearch(repoId: number, query: string, topK: number): Promise<SearchResult[]> {
-  const embedding = await createEmbedding(query);
-  const result = await queryChunks(repoId, embedding, topK);
+  try {
+    const embedding = await createEmbedding(query);
+    const result = await queryChunks(repoId, embedding, topK);
 
-  const chunkRecords = db
-    .select()
-    .from(schema.chunks)
-    .where(sql`repo_id = ${repoId}`)
-    .all();
+    const chunkRecords = db.select().from(schema.chunks).where(sql`repo_id = ${repoId}`).all();
 
-  const results: SearchResult[] = [];
-  for (let i = 0; i < result.ids.length; i++) {
-    const chunk = chunkRecords.find((c) => c.embeddingId === result.ids[i]);
-    if (chunk) {
-      results.push({
-        chunkId: chunk.id,
-        filePath: chunk.filePath,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        chunkType: chunk.chunkType,
-        symbolName: chunk.symbolName,
-        content: chunk.content,
-        score: 1 - (result.distances[i] || 0),
-      });
+    const results: SearchResult[] = [];
+    for (let i = 0; i < result.ids.length; i++) {
+      const chunk = chunkRecords.find((c) => c.embeddingId === result.ids[i]);
+      if (chunk) {
+        results.push({
+          chunkId: chunk.id, filePath: chunk.filePath, startLine: chunk.startLine,
+          endLine: chunk.endLine, chunkType: chunk.chunkType,
+          symbolName: chunk.symbolName, content: chunk.content,
+          score: 1 - (result.distances[i] || 0),
+        });
+      }
     }
+    return results;
+  } catch {
+    return [];
   }
-  return results;
 }
 
 async function ftsSearch(repoId: number, query: string, topK: number): Promise<SearchResult[]> {

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { deleteCollection } from "@/lib/chromadb";
 import { eq } from "drizzle-orm";
-import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { existsSync, rmSync } from "node:fs";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const repo = db.select().from(schema.repos).where(eq(schema.repos.id, Number(params.id))).get();
@@ -19,6 +18,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   db.delete(schema.chunks).where(eq(schema.chunks.repoId, id)).run();
   db.delete(schema.conversations).where(eq(schema.conversations.repoId, id)).run();
   db.delete(schema.repos).where(eq(schema.repos.id, id)).run();
-  if (repo.path && existsSync(repo.path)) await rm(repo.path, { recursive: true, force: true });
+  if (repo.path && existsSync(repo.path)) {
+    try { rmSync(repo.path, { recursive: true, force: true, maxRetries: 3 }); }
+    catch { /* best-effort: db records already deleted */ }
+  }
   return NextResponse.json({ success: true });
 }
