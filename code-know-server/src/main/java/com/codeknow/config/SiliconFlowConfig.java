@@ -1,6 +1,7 @@
 package com.codeknow.config;
 
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.OpenAiEmbeddingOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +20,9 @@ public class SiliconFlowConfig {
     @Bean
     @Primary
     public OpenAiEmbeddingModel embeddingModel() {
-        // baseUrl 不要带 /v1，OpenAiApi 会自动拼接
-        return new OpenAiEmbeddingModel(new OpenAiApi(baseUrl.replace("/v1", ""), apiKey));
+        var options = OpenAiEmbeddingOptions.builder()
+            .withModel("BAAI/bge-m3")
+            .build();
+        return new OpenAiEmbeddingModel(new OpenAiApi(baseUrl.replace("/v1", ""), apiKey), options);
     }
 }
