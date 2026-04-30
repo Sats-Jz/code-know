@@ -20,6 +20,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@tailwindcss/typography": "0.5.19",
+    "adm-zip": "^0.5.17",
     "autoprefixer": "^10.5.0",
     "better-sqlite3": "^12.9.0",
     "chromadb": "^3.4.3",
@@ -42,6 +43,7 @@
     "shiki": "^4.0.2",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^3.4.19",
+    "tar-fs": "^3.1.2",
     "tree-sitter": "^0.25.0",
     "tree-sitter-wasms": "^0.1.13"
   },
@@ -60,10 +62,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
+    "@types/adm-zip": "^0.5.8",
     "@types/better-sqlite3": "^7.6.13",
     "@types/decompress": "^4.2.7",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.0",
+    "@types/tar-fs": "^2.0.4",
     "drizzle-kit": "^0.31.10",
     "tree-sitter-go": "^0.25.0",
     "tree-sitter-java": "^0.23.5",

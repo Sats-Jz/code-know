@@ -6,7 +6,7 @@ import { cloneRepo, getGitUrlName } from "../git";
 export type ImportSource =
   | { type: "local"; localPath: string }
   | { type: "git"; gitUrl: string }
-  | { type: "upload"; filePath: string };
+  | { type: "upload"; filePath: string; fileName: string };
 
 export async function importRepo(source: ImportSource): Promise<{ repoPath: string; repoName: string }> {
   let repoPath: string;
@@ -19,11 +19,42 @@ export async function importRepo(source: ImportSource): Promise<{ repoPath: stri
   } else if (source.type === "git") {
     repoName = await getGitUrlName(source.gitUrl);
     repoPath = await cloneRepo(source.gitUrl, repoName);
+  } else if (source.type === "upload") {
+    repoName = source.fileName.replace(/\.(zip|tar\.gz|tgz|tar)$/i, "");
+    repoPath = `${config.dataDir}/${repoName}`;
+    await extractArchive(source.filePath, repoPath);
   } else {
-    throw new Error("Upload import not yet implemented");
+    throw new Error("Unknown import type");
   }
 
   return { repoPath, repoName };
+}
+
+async function extractArchive(filePath: string, dest: string): Promise<void> {
+  const ext = path.extname(filePath).toLowerCase();
+  const isTar = filePath.endsWith(".tar.gz") || filePath.endsWith(".tgz") || ext === ".tar";
+
+  if (ext === ".zip") {
+    const AdmZip = (await import("adm-zip")).default;
+    const zip = new AdmZip(filePath);
+    zip.extractAllTo(dest, true);
+  } else if (isTar) {
+    const tar = await import("tar-fs");
+    const zlib = await import("node:zlib");
+    const extract = tar.extract(dest);
+    const source = fs.createReadStream(filePath);
+    if (filePath.endsWith(".gz") || filePath.endsWith(".tgz")) {
+      source.pipe(zlib.createGunzip()).pipe(extract);
+    } else {
+      source.pipe(extract);
+    }
+    await new Promise<void>((resolve, reject) => {
+      extract.on("finish", resolve);
+      extract.on("error", reject);
+    });
+  } else {
+    throw new Error("Unsupported archive format: " + ext);
+  }
 }
 
 export async function getRepoFiles(repoPath: string): Promise<string[]> {

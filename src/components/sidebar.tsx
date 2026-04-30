@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Settings, BookOpen } from "lucide-react";
+import { Home, Settings, BookOpen, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function Sidebar() {
@@ -17,6 +17,11 @@ export function Sidebar() {
       <Link href="/">
         <Button variant={pathname === "/" ? "secondary" : "ghost"} size="icon" title="仓库">
           <Home className="h-5 w-5" />
+        </Button>
+      </Link>
+      <Link href="/compare">
+        <Button variant={pathname.startsWith("/compare") ? "secondary" : "ghost"} size="icon" title="跨仓库对比">
+          <ArrowLeftRight className="h-5 w-5" />
         </Button>
       </Link>
       <Link href="/settings">
