@@ -14,19 +14,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const conv = db.insert(schema.conversations).values({ repoId, mode, title: message.slice(0, 50) }).returning().get();
     convId = conv.id;
   }
-  db.insert(schema.messages).values({ conversationId: convId, role: "user", content: JSON.stringify({ text: message, mode }), createdAt: new Date().toISOString() }).run();
-  const historyRows = db.select().from(schema.messages).where(eq(schema.messages.conversationId, convId)).orderBy(schema.messages.createdAt).all();
-  const history: ChatMessage[] = historyRows.map((r) => ({ role: r.role as "user" | "assistant", content: r.content }));
+  db.insert(schema.messages).values({
+    conversationId: convId, role: "user",
+    content: JSON.stringify({ text: message, mode }),
+    createdAt: new Date().toISOString(),
+  }).run();
+  const historyRows = db.select().from(schema.messages)
+    .where(eq(schema.messages.conversationId, convId))
+    .orderBy(schema.messages.createdAt).all();
+  const history: ChatMessage[] = historyRows.map((r) => ({
+    role: r.role as "user" | "assistant", content: r.content,
+  }));
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
+      // Send conversation_id first so frontend knows
+      controller.enqueue(encoder.encode("event: meta\ndata: " + JSON.stringify({ conversation_id: convId }) + "\n\n"));
       const parts: { type: string; data: unknown }[] = [];
       try {
         for await (const chunk of chatStream(repoId, message, history)) {
           parts.push(chunk);
           controller.enqueue(encoder.encode("event: " + chunk.type + "\ndata: " + JSON.stringify(chunk.data) + "\n\n"));
         }
-        db.insert(schema.messages).values({ conversationId: convId, role: "assistant", content: JSON.stringify(parts) }).run();
+        db.insert(schema.messages).values({
+          conversationId: convId, role: "assistant",
+          content: JSON.stringify(parts),
+        }).run();
         controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
         controller.close();
       } catch (e) {

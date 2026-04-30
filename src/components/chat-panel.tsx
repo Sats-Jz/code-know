@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatMessage } from "./chat-message";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,15 +26,21 @@ export function ChatPanel({ repoId }: { repoId: string }) {
   const [convs, setConvs] = useState<Conv[]>([]);
   const [convId, setConvId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const streamContentRef = useRef("");
+  const streamMsgIdRef = useRef("");
+  const streamingRef = useRef(false);
 
+  // Auto-scroll
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   // Load conversation list
-  useEffect(() => {
-    fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
+  const fetchConvs = useCallback(async () => {
+    const res = await fetch("/api/repos/" + repoId + "/conversations");
+    setConvs(await res.json());
   }, [repoId]);
 
-  // Load a conversation
+  useEffect(() => { fetchConvs(); }, [fetchConvs]);
+
   async function loadConversation(id: number) {
     setConvId(id);
     const res = await fetch("/api/repos/" + repoId + "/conversations/" + id);
@@ -44,33 +50,46 @@ export function ChatPanel({ repoId }: { repoId: string }) {
       try {
         const parsed = JSON.parse(r.content);
         if (typeof parsed === "string") content = parsed;
-        else if (parsed.text) content = parsed.text;
         else if (Array.isArray(parsed)) content = parsed.filter((p: any) => p.type === "text").map((p: any) => p.data).join("");
       } catch { content = r.content; }
       return { id: String(r.id), role: r.role, content };
     }).filter((m: Message) => m.content);
     setMessages(msgs);
-    // Refresh list in case a new conv was added
-    fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
   }
 
-  // Start new conversation
   function newConversation() {
     setConvId(null);
     setMessages([]);
   }
 
+  // Update streamed message using ref to avoid React Strict Mode double-fire
+  const updateStreamContent = useCallback(() => {
+    const id = streamMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === id);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], content: streamContentRef.current };
+      return updated;
+    });
+  }, []);
+
   const sendMessage = async () => {
-    if (!input.trim() || streaming) return;
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
+    if (!input.trim() || streamingRef.current) return;
+    streamingRef.current = true;
+    streamContentRef.current = "";
     setStreaming(true);
 
-    const aiMsg: Message = { id: (Date.now() + 1).toString(), role: "assistant", content: "" };
-    setMessages((prev) => [...prev, aiMsg]);
+    const userMsg: Message = { id: Date.now().toString(), role: "user", content: input };
+    const aiMsgId = (Date.now() + 1).toString();
+    streamMsgIdRef.current = aiMsgId;
+    const aiMsg: Message = { id: aiMsgId, role: "assistant", content: "" };
+    setMessages((prev) => [...prev, userMsg, aiMsg]);
+    const currentInput = input;
+    setInput("");
 
-    const body: any = { message: input };
+    const body: any = { message: currentInput };
     if (convId) body.conversation_id = convId;
 
     const res = await fetch("/api/repos/" + repoId + "/chat", {
@@ -81,51 +100,49 @@ export function ChatPanel({ repoId }: { repoId: string }) {
 
     const reader = res.body?.getReader();
     const decoder = new TextDecoder();
-    if (!reader) { setStreaming(false); return; }
+    if (!reader) { setStreaming(false); streamingRef.current = false; return; }
 
-    let gotConvId = false;
+    let eventType = "";
+    let buffer = "";
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value);
-      const lines = text.split("\n");
-      let eventType = "";
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          eventType = line.slice(7).trim();
-        } else if (line.startsWith("data: ")) {
-          try {
-            const raw = JSON.parse(line.slice(6));
-            // data could be either a plain string (text delta) or an object
-            if (typeof raw === "string") {
-              if (eventType === "text" || eventType === "") {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1].content += raw;
-                  return updated;
-                });
-              }
-            } else if (raw && typeof raw === "object") {
-              if (raw.delta) {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1].content += raw.delta;
-                  return updated;
-                });
-              }
-              if (raw.conversation_id && !gotConvId) {
-                gotConvId = true;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE events
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || ""; // keep incomplete part
+
+      for (const part of parts) {
+        let evType = "";
+        for (const line of part.split("\n")) {
+          if (line.startsWith("event: ")) evType = line.slice(7).trim();
+          else if (line.startsWith("data: ")) {
+            try {
+              const raw = JSON.parse(line.slice(6));
+              if (evType === "meta" && raw && raw.conversation_id) {
                 setConvId(raw.conversation_id);
-                fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
+                fetchConvs();
+              } else if (evType === "text" || evType === "chart" || evType === "references" || evType === "") {
+                if (typeof raw === "string") {
+                  streamContentRef.current += raw;
+                } else if (raw && typeof raw === "object" && raw.delta) {
+                  streamContentRef.current += raw.delta;
+                }
+                updateStreamContent();
               }
-            }
-          } catch {}
+            } catch {}
+          }
         }
       }
     }
+
+    streamContentRef.current = "";
+    streamMsgIdRef.current = "";
+    streamingRef.current = false;
     setStreaming(false);
-    // Refresh conv list
-    fetch("/api/repos/" + repoId + "/conversations").then((r) => r.json()).then(setConvs);
+    fetchConvs();
   };
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -134,7 +151,6 @@ export function ChatPanel({ repoId }: { repoId: string }) {
 
   return (
     <div className="flex h-full">
-      {/* Conversation sidebar */}
       <div className="w-56 border-r border-zinc-800 flex flex-col shrink-0">
         <div className="p-2 border-b border-zinc-800">
           <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={newConversation}>
@@ -152,7 +168,6 @@ export function ChatPanel({ repoId }: { repoId: string }) {
         </div>
       </div>
 
-      {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-auto">
           {messages.length === 0 && (
