@@ -1,10 +1,12 @@
 package com.codeknow.config;
 
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 @Configuration
 public class DeepSeekConfig {
@@ -16,12 +18,11 @@ public class DeepSeekConfig {
     private String baseUrl;
 
     @Bean
-    public OpenAiApi deepSeekApi() {
-        return new OpenAiApi(baseUrl, apiKey);
-    }
-
-    @Bean
-    public OpenAiChatModel deepSeekChatModel(OpenAiApi deepSeekApi) {
-        return new OpenAiChatModel(deepSeekApi);
+    @Primary
+    public OpenAiChatModel deepSeekChatModel() {
+        var options = OpenAiChatOptions.builder()
+            .withModel("deepseek-v4-pro")
+            .build();
+        return new OpenAiChatModel(new OpenAiApi(baseUrl, apiKey), options);
     }
 }

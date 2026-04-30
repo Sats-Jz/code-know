@@ -5,6 +5,7 @@ import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 @Configuration
 public class SiliconFlowConfig {
@@ -15,13 +16,9 @@ public class SiliconFlowConfig {
     @Value("${siliconflow.base-url}")
     private String baseUrl;
 
-    @Bean("siliconFlowApi")
-    public OpenAiApi siliconFlowApi() {
-        return new OpenAiApi(baseUrl, apiKey);
-    }
-
     @Bean
+    @Primary
     public OpenAiEmbeddingModel embeddingModel() {
-        return new OpenAiEmbeddingModel(siliconFlowApi());
+        return new OpenAiEmbeddingModel(new OpenAiApi(baseUrl, apiKey));
     }
 }

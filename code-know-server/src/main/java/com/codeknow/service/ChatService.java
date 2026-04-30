@@ -77,10 +77,12 @@ public class ChatService {
                 // meta event with conversation_id
                 sink.next(ssEvent("meta", Map.of("conversation_id", finalConvId)));
 
-                // Call LLM
+                // Call LLM with DeepSeek model
                 var response = chatModel.call(new org.springframework.ai.chat.prompt.Prompt(
-                    new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
-                    new org.springframework.ai.chat.messages.UserMessage(prompt)
+                    java.util.List.of(
+                        new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
+                        new org.springframework.ai.chat.messages.UserMessage(prompt)
+                    )
                 ));
                 String text = response.getResult().getOutput().getContent();
 
