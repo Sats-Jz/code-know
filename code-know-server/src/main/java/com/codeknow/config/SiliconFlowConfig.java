@@ -19,6 +19,7 @@ public class SiliconFlowConfig {
     @Bean
     @Primary
     public OpenAiEmbeddingModel embeddingModel() {
-        return new OpenAiEmbeddingModel(new OpenAiApi(baseUrl, apiKey));
+        // baseUrl 不要带 /v1，OpenAiApi 会自动拼接
+        return new OpenAiEmbeddingModel(new OpenAiApi(baseUrl.replace("/v1", ""), apiKey));
     }
 }
