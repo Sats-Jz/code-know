@@ -6,7 +6,7 @@ import com.codeknow.model.Message;
 import com.codeknow.model.MessageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -18,7 +18,7 @@ import java.util.*;
 public class ChatService {
 
     private final OpenAiChatModel chatModel;
-    private final OpenAiEmbeddingModel embedModel;
+    private final EmbeddingModel embedModel;
     private final ChromaDBService chromaDB;
     private final ConversationRepository convRepo;
     private final MessageRepository msgRepo;
@@ -34,7 +34,7 @@ public class ChatService {
         - 如果信息不足，明确指出
         """;
 
-    public ChatService(OpenAiChatModel chatModel, OpenAiEmbeddingModel embedModel,
+    public ChatService(OpenAiChatModel chatModel, EmbeddingModel embedModel,
                        ChromaDBService chromaDB, ConversationRepository convRepo, MessageRepository msgRepo) {
         this.chatModel = chatModel;
         this.embedModel = embedModel;
@@ -123,12 +123,14 @@ public class ChatService {
         List<String> results = new ArrayList<>();
         try {
             float[] emb = embedModel.embed(query);
+            System.out.println("[RAG] embedding成功, 维度=" + emb.length);
             ChromaDBService.ChromaQueryResult qr = chromaDB.query(repoId, emb, 15);
+            System.out.println("[RAG] ChromaDB返回 " + qr.documents.size() + " 个chunk");
             for (int i = 0; i < qr.documents.size(); i++) {
                 results.add(qr.documents.get(i));
             }
         } catch (Exception e) {
-            // embedding failed
+            System.err.println("[RAG] 检索失败: " + e.getMessage());
         }
         return results;
     }

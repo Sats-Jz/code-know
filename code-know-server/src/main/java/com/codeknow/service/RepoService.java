@@ -2,7 +2,7 @@ package com.codeknow.service;
 
 import com.codeknow.model.Repo;
 import com.codeknow.model.RepoRepository;
-import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +16,7 @@ public class RepoService {
 
     private final RepoRepository repoRepo;
     private final ChromaDBService chromaDB;
-    private final OpenAiEmbeddingModel embedModel;
+    private final EmbeddingModel embedModel;
 
     @Value("${codeknow.data-dir}")
     private String dataDir;
@@ -29,7 +29,7 @@ public class RepoService {
         "node_modules", ".git", "dist", "build", ".next", "target", "__pycache__"
     );
 
-    public RepoService(RepoRepository repoRepo, ChromaDBService chromaDB, OpenAiEmbeddingModel embedModel) {
+    public RepoService(RepoRepository repoRepo, ChromaDBService chromaDB, EmbeddingModel embedModel) {
         this.repoRepo = repoRepo;
         this.chromaDB = chromaDB;
         this.embedModel = embedModel;
@@ -104,6 +104,8 @@ public class RepoService {
 
                 for (int i = 0; i < chunks.size(); i++) {
                     String chunk = chunks.get(i);
+                    // BGE-M3 限制 8192 tokens，截断到 ~5000 tokens 安全范围
+                    if (chunk.length() > 20000) chunk = chunk.substring(0, 20000);
                     try {
                         float[] emb = embedModel.embed(chunk);
                         batchIds.add("repo_" + repoId + "_chunk_" + totalChunks);

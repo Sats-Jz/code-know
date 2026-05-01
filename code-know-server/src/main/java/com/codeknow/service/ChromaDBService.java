@@ -19,31 +19,71 @@ public class ChromaDBService {
     @Value("${chromadb.url}")
     private String baseUrl;
 
-    private static final String PREFIX = "repo_";
+    private static final String DB_PATH = "/api/v2/tenants/default/databases";
+    private static final String DB_NAME = "default";
+    private String collectionsPath() { return DB_PATH + "/" + DB_NAME + "/collections"; }
 
-    private void ensureCollection(Long repoId) {
-        String name = PREFIX + repoId;
+    private final Map<Long, String> collectionUuids = new HashMap<>();
+    private boolean dbReady = false;
+
+    private synchronized void ensureDatabase() {
+        if (dbReady) return;
+        // GET to check if DB exists
         try {
-            rest.getForEntity(baseUrl + "/api/v2/collections/" + name, String.class);
+            rest.getForEntity(baseUrl + DB_PATH, String.class);
+        } catch (Exception e) { /* ignore */ }
+        // Create DB if needed (POST once)
+        try {
+            Map<String, String> body = Map.of("name", DB_NAME);
+            rest.postForEntity(baseUrl + DB_PATH, body, String.class);
+        } catch (Exception e) { /* might already exist */ }
+        dbReady = true;
+    }
+
+    private String getOrCreateCollection(Long repoId) {
+        ensureDatabase();
+        if (collectionUuids.containsKey(repoId)) return collectionUuids.get(repoId);
+
+        String name = "repo_" + repoId;
+        // Try to find existing collection
+        try {
+            String resp = rest.getForEntity(baseUrl + collectionsPath(), String.class).getBody();
+            JsonNode arr = mapper.readTree(resp);
+            for (JsonNode col : arr) {
+                if (name.equals(col.get("name").asText())) {
+                    String uuid = col.get("id").asText();
+                    collectionUuids.put(repoId, uuid);
+                    return uuid;
+                }
+            }
+        } catch (Exception e) { /* empty or error */ }
+
+        // Create new collection
+        Map<String, String> body = new HashMap<>();
+        body.put("name", name);
+        String resp = rest.postForEntity(baseUrl + collectionsPath(), body, String.class).getBody();
+        try {
+            JsonNode json = mapper.readTree(resp);
+            String uuid = json.get("id").asText();
+            collectionUuids.put(repoId, uuid);
+            System.out.println("[ChromaDB] 创建集合 " + name + " uuid=" + uuid);
+            return uuid;
         } catch (Exception e) {
-            // Create if not exists
-            Map<String, Object> body = new HashMap<>();
-            body.put("name", name);
-            rest.postForEntity(baseUrl + "/api/v2/collections", body, String.class);
+            return name; // fallback
         }
     }
 
     public void deleteCollection(Long repoId) {
-        String name = PREFIX + repoId;
+        String uuid = collectionUuids.remove(repoId);
+        if (uuid == null) uuid = getOrCreateCollection(repoId);
         try {
-            rest.delete(baseUrl + "/api/v2/collections/" + name);
+            rest.delete(baseUrl + collectionsPath() + "/" + uuid);
         } catch (Exception e) { /* ignore */ }
     }
 
     public void addChunks(Long repoId, List<String> ids, List<float[]> embeddings,
                           List<Map<String, String>> metadatas, List<String> documents) {
-        ensureCollection(repoId);
-        String name = PREFIX + repoId;
+        String uuid = getOrCreateCollection(repoId);
 
         ObjectNode root = mapper.createObjectNode();
         ArrayNode idsArr = root.putArray("ids");
@@ -62,23 +102,24 @@ public class ChromaDBService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        rest.postForEntity(baseUrl + "/api/v2/collections/" + name + "/add",
+        var resp = rest.postForEntity(baseUrl + collectionsPath() + "/" + uuid + "/add",
             new HttpEntity<>(root.toString(), headers), String.class);
+        System.out.println("[ChromaDB] 写入 " + ids.size() + " chunks, 状态=" + resp.getStatusCode());
     }
 
     public ChromaQueryResult query(Long repoId, float[] embedding, int topK) {
-        String name = PREFIX + repoId;
+        String uuid = getOrCreateCollection(repoId);
         try {
             ObjectNode root = mapper.createObjectNode();
-            ArrayNode qe = root.putArray("queryEmbeddings");
+            ArrayNode qe = root.putArray("query_embeddings");
             ArrayNode e = qe.addArray();
             for (float f : embedding) e.add(f);
-            root.put("nResults", topK);
+            root.put("n_results", topK);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             ResponseEntity<String> resp = rest.postForEntity(
-                baseUrl + "/api/v2/collections/" + name + "/query",
+                baseUrl + collectionsPath() + "/" + uuid + "/query",
                 new HttpEntity<>(root.toString(), headers), String.class);
 
             JsonNode json = mapper.readTree(resp.getBody());
@@ -92,8 +133,10 @@ public class ChromaDBService {
             if (json.has("documents") && json.get("documents").size() > 0) {
                 json.get("documents").get(0).forEach(n -> result.documents.add(n.asText()));
             }
+            System.out.println("[ChromaDB] 查询返回 " + result.ids.size() + " 条结果");
             return result;
         } catch (Exception e) {
+            System.err.println("[ChromaDB] 查询失败: " + e.getMessage());
             return new ChromaQueryResult();
         }
     }
