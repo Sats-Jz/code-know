@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -43,7 +44,9 @@ public class ChatService {
         this.msgRepo = msgRepo;
     }
 
-    public record ChatRequest(String message, Long conversationId, String mode) {}
+    public record ChatRequest(String message,
+            @JsonProperty("conversation_id") Long conversationId,
+            String mode) {}
 
     public Flux<String> chatStream(Long repoId, ChatRequest request) {
         // Create or reuse conversation
@@ -88,20 +91,22 @@ public class ChatService {
             )
         );
 
-        // Use array to track last position (avoid lambda final issue)
+        // Track cumulative position for delta extraction
         int[] lastLen = {0};
         Flux<String> streamFlux = chatModel.stream(promptObj)
+            .filter(cr -> cr != null && cr.getResult() != null
+                && cr.getResult().getOutput() != null
+                && cr.getResult().getOutput().getContent() != null)
             .map(cr -> cr.getResult().getOutput().getContent())
-            .filter(Objects::nonNull)
             .map(text -> {
-                // Spring AI streaming may return cumulative text, extract delta
+                if (text == null) return "";
                 if (text.length() <= lastLen[0]) return "";
                 String delta = text.substring(lastLen[0]);
                 lastLen[0] = text.length();
                 fullText.append(delta);
                 return delta;
             })
-            .filter(d -> !d.isEmpty())
+            .filter(d -> d != null && !d.isEmpty())
             .map(d -> ssEvent("text", d));
 
         // Done event with save
