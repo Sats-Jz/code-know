@@ -12,6 +12,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.*;
 
 @Service
@@ -65,9 +66,12 @@ public class ChatService {
         userMsg.setCreatedAt(LocalDateTime.now());
         msgRepo.save(userMsg);
 
-        // Search context
-        List<String> context = searchContext(repoId, request.message);
-        String ctx = "以下是相关代码片段：\n\n" + String.join("\n", context);
+        // Search context (never throw)
+        List<String> context = Collections.emptyList();
+        try { context = searchContext(repoId, request.message); } catch (Exception e) {
+            System.err.println("[RAG] 检索异常: " + e.getMessage());
+        }
+        String ctx = context.isEmpty() ? "（暂无相关代码片段）" : "以下是相关代码片段：\n\n" + String.join("\n", context);
         String prompt = ctx + "\n\n用户问题: " + request.message;
 
         final Long finalConvId = convId;

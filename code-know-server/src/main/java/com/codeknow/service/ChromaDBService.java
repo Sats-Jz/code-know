@@ -108,8 +108,8 @@ public class ChromaDBService {
     }
 
     public ChromaQueryResult query(Long repoId, float[] embedding, int topK) {
-        String uuid = getOrCreateCollection(repoId);
         try {
+            String uuid = getOrCreateCollection(repoId);
             ObjectNode root = mapper.createObjectNode();
             ArrayNode qe = root.putArray("query_embeddings");
             ArrayNode e = qe.addArray();
