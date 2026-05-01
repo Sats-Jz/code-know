@@ -2,3 +2,5 @@ application-local.yml
 target/
 data/
 *.db
+repos/
+data/
