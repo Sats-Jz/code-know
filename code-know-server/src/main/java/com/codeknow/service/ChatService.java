@@ -9,7 +9,7 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import reactor.core.scheduler.Schedulers;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -46,6 +46,7 @@ public class ChatService {
     public record ChatRequest(String message, Long conversationId, String mode) {}
 
     public Flux<String> chatStream(Long repoId, ChatRequest request) {
+        // Create or reuse conversation
         Long convId = request.conversationId;
         if (convId == null) {
             Conversation conv = new Conversation();
@@ -57,6 +58,7 @@ public class ChatService {
             convId = conv.getId();
         }
 
+        // Save user message
         Message userMsg = new Message();
         userMsg.setConversationId(convId);
         userMsg.setRole("user");
@@ -64,7 +66,7 @@ public class ChatService {
         userMsg.setCreatedAt(LocalDateTime.now());
         msgRepo.save(userMsg);
 
-        // Search context (never throw)
+        // Search context
         List<String> context = Collections.emptyList();
         try { context = searchContext(repoId, request.message); } catch (Exception e) {
             System.err.println("[RAG] 检索异常: " + e.getMessage());
@@ -75,49 +77,45 @@ public class ChatService {
         final Long finalConvId = convId;
         StringBuilder fullText = new StringBuilder();
 
-        return Flux.<String>create(sink -> {
-            try {
-                sink.next(ssEvent("meta", Map.of("conversation_id", finalConvId)));
+        // Meta event first
+        Flux<String> metaFlux = Flux.just(ssEvent("meta", Map.of("conversation_id", finalConvId)));
 
-                // True streaming via Spring AI
-                var promptObj = new org.springframework.ai.chat.prompt.Prompt(
-                    java.util.List.of(
-                        new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
-                        new org.springframework.ai.chat.messages.UserMessage(prompt)
-                    )
-                );
+        // Real streaming from DeepSeek
+        var promptObj = new org.springframework.ai.chat.prompt.Prompt(
+            java.util.List.of(
+                new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
+                new org.springframework.ai.chat.messages.UserMessage(prompt)
+            )
+        );
 
-                chatModel.stream(promptObj)
-                    .doOnNext(chatResponse -> {
-                        String delta = chatResponse.getResult().getOutput().getContent();
-                        if (delta != null && !delta.isEmpty()) {
-                            fullText.append(delta);
-                            sink.next(ssEvent("text", delta));
-                        }
-                    })
-                    .doOnComplete(() -> {
-                        saveAssistantMessage(finalConvId, fullText.toString());
-                        sink.next(ssEvent("done", Map.of()));
-                        sink.complete();
-                    })
-                    .doOnError(e -> {
-                        System.err.println("[Chat] 流式错误: " + e.getMessage());
-                        saveAssistantMessage(finalConvId, fullText.toString());
-                        sink.next(ssEvent("done", Map.of()));
-                        sink.complete();
-                    })
-                    .subscribe();
-            } catch (Exception e) {
-                System.err.println("[Chat] 异常: " + e.getMessage());
-                sink.next(ssEvent("error", Map.of("error", e.getMessage())));
-                sink.complete();
-            }
-        }).subscribeOn(Schedulers.boundedElastic());
+        // Use array to track last position (avoid lambda final issue)
+        int[] lastLen = {0};
+        Flux<String> streamFlux = chatModel.stream(promptObj)
+            .map(cr -> cr.getResult().getOutput().getContent())
+            .filter(Objects::nonNull)
+            .map(text -> {
+                // Spring AI streaming may return cumulative text, extract delta
+                if (text.length() <= lastLen[0]) return "";
+                String delta = text.substring(lastLen[0]);
+                lastLen[0] = text.length();
+                fullText.append(delta);
+                return delta;
+            })
+            .filter(d -> !d.isEmpty())
+            .map(d -> ssEvent("text", d));
+
+        // Done event with save
+        Mono<String> doneMono = Mono.fromCallable(() -> {
+            saveMessage(finalConvId, fullText.toString());
+            return ssEvent("done", Map.of());
+        });
+
+        return Flux.concat(metaFlux, streamFlux, doneMono);
     }
 
-    private void saveAssistantMessage(Long convId, String text) {
+    private void saveMessage(Long convId, String text) {
+        if (text.isEmpty()) return;
         try {
-            if (text.isEmpty()) return;
             Message aiMsg = new Message();
             aiMsg.setConversationId(convId);
             aiMsg.setRole("assistant");
