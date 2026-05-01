@@ -5,14 +5,13 @@ import com.codeknow.model.ConversationRepository;
 import com.codeknow.model.Message;
 import com.codeknow.model.MessageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.*;
 
 @Service
@@ -58,7 +57,6 @@ public class ChatService {
             convId = conv.getId();
         }
 
-        // Save user message
         Message userMsg = new Message();
         userMsg.setConversationId(convId);
         userMsg.setRole("user");
@@ -75,43 +73,60 @@ public class ChatService {
         String prompt = ctx + "\n\n用户问题: " + request.message;
 
         final Long finalConvId = convId;
+        StringBuilder fullText = new StringBuilder();
 
         return Flux.<String>create(sink -> {
             try {
-                // meta event with conversation_id
                 sink.next(ssEvent("meta", Map.of("conversation_id", finalConvId)));
 
-                // Call LLM with DeepSeek model
-                var response = chatModel.call(new org.springframework.ai.chat.prompt.Prompt(
+                // True streaming via Spring AI
+                var promptObj = new org.springframework.ai.chat.prompt.Prompt(
                     java.util.List.of(
                         new org.springframework.ai.chat.messages.SystemMessage(SYSTEM_PROMPT),
                         new org.springframework.ai.chat.messages.UserMessage(prompt)
                     )
-                ));
-                String text = response.getResult().getOutput().getContent();
+                );
 
-                // Split into sentences for streaming effect
-                String[] parts = text.split("(?<=\\n)|(?<=\\. )|(?<=。)|(?<=；)");
-                for (String part : parts) {
-                    if (part.isEmpty()) continue;
-                    sink.next(ssEvent("text", part));
-                }
-
-                // Save assistant message
-                Message aiMsg = new Message();
-                aiMsg.setConversationId(finalConvId);
-                aiMsg.setRole("assistant");
-                aiMsg.setContent(text);
-                aiMsg.setCreatedAt(LocalDateTime.now());
-                msgRepo.save(aiMsg);
-
-                sink.next(ssEvent("done", Map.of()));
-                sink.complete();
+                chatModel.stream(promptObj)
+                    .doOnNext(chatResponse -> {
+                        String delta = chatResponse.getResult().getOutput().getContent();
+                        if (delta != null && !delta.isEmpty()) {
+                            fullText.append(delta);
+                            sink.next(ssEvent("text", delta));
+                        }
+                    })
+                    .doOnComplete(() -> {
+                        saveAssistantMessage(finalConvId, fullText.toString());
+                        sink.next(ssEvent("done", Map.of()));
+                        sink.complete();
+                    })
+                    .doOnError(e -> {
+                        System.err.println("[Chat] 流式错误: " + e.getMessage());
+                        saveAssistantMessage(finalConvId, fullText.toString());
+                        sink.next(ssEvent("done", Map.of()));
+                        sink.complete();
+                    })
+                    .subscribe();
             } catch (Exception e) {
+                System.err.println("[Chat] 异常: " + e.getMessage());
                 sink.next(ssEvent("error", Map.of("error", e.getMessage())));
                 sink.complete();
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void saveAssistantMessage(Long convId, String text) {
+        try {
+            if (text.isEmpty()) return;
+            Message aiMsg = new Message();
+            aiMsg.setConversationId(convId);
+            aiMsg.setRole("assistant");
+            aiMsg.setContent(text);
+            aiMsg.setCreatedAt(LocalDateTime.now());
+            msgRepo.save(aiMsg);
+        } catch (Exception e) {
+            System.err.println("[Chat] 保存消息失败: " + e.getMessage());
+        }
     }
 
     private String ssEvent(String event, Object data) {
@@ -125,17 +140,11 @@ public class ChatService {
 
     private List<String> searchContext(Long repoId, String query) {
         List<String> results = new ArrayList<>();
-        try {
-            float[] emb = embedModel.embed(query);
-            System.out.println("[RAG] embedding成功, 维度=" + emb.length);
-            ChromaDBService.ChromaQueryResult qr = chromaDB.query(repoId, emb, 15);
-            System.out.println("[RAG] ChromaDB返回 " + qr.documents.size() + " 个chunk");
-            for (int i = 0; i < qr.documents.size(); i++) {
-                results.add(qr.documents.get(i));
-            }
-        } catch (Exception e) {
-            System.err.println("[RAG] 检索失败: " + e.getMessage());
-        }
+        float[] emb = embedModel.embed(query);
+        System.out.println("[RAG] embedding成功, 维度=" + emb.length);
+        ChromaDBService.ChromaQueryResult qr = chromaDB.query(repoId, emb, 15);
+        System.out.println("[RAG] ChromaDB返回 " + qr.documents.size() + " 个chunk");
+        for (String doc : qr.documents) results.add(doc);
         return results;
     }
 
